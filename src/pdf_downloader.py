@@ -1,8 +1,8 @@
 import os
 import json
 import asyncio
-import aiohttp
-import glob
+import aiohttp #pip3 install aiohttp
+import glob 
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
