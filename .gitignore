@@ -17,5 +17,5 @@ __pycache__/
 .idea/
 *.env
 #data/
-.data/2024json/
-.data/2024pdf/
+/data/2024json
+/data/2024pdf
