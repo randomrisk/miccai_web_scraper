@@ -1,5 +1,5 @@
 # MICCAI Papers' Review Scraper
-This project extracts review metadata from papers accepted for the MICCAI 2023 conference.
+This project extracts review metadata from papers accepted for the MICCAI 2023,2024 conference.
 
 ## Usage
 1. Installation:
