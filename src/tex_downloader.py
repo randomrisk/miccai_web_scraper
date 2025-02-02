@@ -2,10 +2,14 @@ import os
 import json
 import glob
 import arxiv
+import tarfile
 import asyncio
 import aiohttp
 import logging
+from pathlib import Path
 from tqdm import tqdm
+from urllib.parse import quote
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -17,24 +21,28 @@ logging.basicConfig(
 class ArXivSourceDownloader:
     def __init__(self, json_dir, output_dir):
         self.json_dir = json_dir
-        self.source_dir = output_dir
+        self.output_dir = output_dir
+        self.source_dir = os.path.join(output_dir, "tex_sources")
+        self.client = arxiv.Client()
         
-        # Create directory
+        # Create directories
         os.makedirs(self.source_dir, exist_ok=True)
         
         # Configure arxiv client
         self.client = arxiv.Client(
             page_size=1,
-            delay_seconds=3,
+            delay_seconds=3,  # Be nice to arXiv API
             num_retries=3
         )
 
     def clean_title(self, title):
         """Clean the title for better search results"""
+        # Remove common special characters and extra whitespace
         title = title.lower()
         title = title.replace(":", " ")
         title = title.replace("-", " ")
-        return " ".join(title.split())
+        title = " ".join(title.split())
+        return title
 
     def get_titles_from_json(self):
         """Get all paper titles from JSON files"""
@@ -46,6 +54,7 @@ class ArXivSourceDownloader:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     if data.get('Title'):
+                        # Store both original title and filename
                         papers.append({
                             'title': data['Title'],
                             'file': os.path.basename(json_file)
@@ -55,33 +64,9 @@ class ArXivSourceDownloader:
         
         return papers
 
-    async def download_source(self, paper_id, output_path):
-        """Download source files from arXiv"""
-        source_url = f"https://arxiv.org/e-print/{paper_id}"
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.get(source_url) as response:
-                if response.status == 200:
-                    content = await response.read()
-                    with open(output_path, 'wb') as f:
-                        f.write(content)
-                    return True
-                else:
-                    logging.error(f"Error downloading source, status: {response.status}")
-                    return False
-
     async def search_and_download(self, paper):
         """Search for a paper on arXiv and download its source if available"""
         try:
-            # Generate output filename
-            output_path = os.path.join(self.source_dir, 
-                                     paper['file'].replace('.json', '.tar.gz'))
-            
-            # Skip if already downloaded
-            if os.path.exists(output_path):
-                logging.info(f"Skipping {paper['title']} - already downloaded")
-                return True
-
             # Clean the title for search
             clean_title = self.clean_title(paper['title'])
             
@@ -96,22 +81,49 @@ class ArXivSourceDownloader:
             if not results:
                 logging.info(f"No arXiv match found for: {paper['title']}")
                 return False
-
-            # Get the paper ID and download source
-            paper_id = results[0].entry_id.split('/')[-1]
-            success = await self.download_source(paper_id, output_path)
             
-            if success:
-                logging.info(f"Successfully downloaded source for: {paper['title']}")
+            result = results[0]
             
-            return success
+            # Create directory for this paper
+            paper_dir = os.path.join(self.source_dir, paper['file'].replace('.json', ''))
+            os.makedirs(paper_dir, exist_ok=True)
+            
+            # Download source files
+            source_path = os.path.join(paper_dir, 'source.tar.gz')
+            if not os.path.exists(source_path):
+                # Get the paper ID from the entry ID
+                paper_id = result.entry_id.split('/')[-1]
+                source_url = f"https://arxiv.org/e-print/{paper_id}"
+                
+                # Download the source files
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(source_url) as response:
+                        if response.status == 200:
+                            content = await response.read()
+                            with open(source_path, 'wb') as f:
+                                f.write(content)
+                            
+                            # Extract the tar.gz file
+                            try:
+                                with tarfile.open(source_path, 'r:gz') as tar:
+                                    tar.extractall(path=paper_dir)
+                                logging.info(f"Successfully downloaded and extracted source for: {paper['title']}")
+                                return True
+                            except Exception as e:
+                                logging.error(f"Error extracting source for {paper['title']}: {str(e)}")
+                                return False
+                        else:
+                            logging.error(f"Error downloading source for {paper['title']}: Status {response.status}")
+                            return False
+            
+            return True
             
         except Exception as e:
             logging.error(f"Error processing {paper['title']}: {str(e)}")
             return False
 
     async def process_all_papers(self):
-        """Process all papers"""
+        """Process all papers concurrently"""
         papers = self.get_titles_from_json()
         print(f"Found {len(papers)} papers to process")
         
@@ -131,7 +143,7 @@ class ArXivSourceDownloader:
         
         # Print summary
         successful = sum(1 for r in results if r)
-        print(f"\nFound and downloaded {successful} out of {len(papers)} papers from arXiv")
+        print(f"\nFound and processed {successful} out of {len(papers)} papers on arXiv")
 
 async def main():
     # Configuration
