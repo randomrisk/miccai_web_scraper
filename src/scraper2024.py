@@ -5,16 +5,34 @@ import os
 import time
 import re
 from pathlib import Path
+from urllib.parse import urljoin
 
-BASE_URL = "https://papers.miccai.org/miccai-2024/"
-SAVE_DIR = "/home/joshua/Documents/GitHub/miccai_web_scraper/data/2024json"
-os.makedirs(SAVE_DIR, exist_ok=True)
+BASE_URL = "https://papers.miccai.org/miccai-2025/"
+# Compute project root and use a project-relative data directory so the script
+# works across platforms (macOS, Linux, Windows) instead of hard-coding
+# an absolute `/home/...` path which may not exist on the current machine.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SAVE_DIR = PROJECT_ROOT / 'data' / '2025json'
+os.makedirs(str(SAVE_DIR), exist_ok=True)
 
 def extract_links():
     response = requests.get(BASE_URL)
     soup = BeautifulSoup(response.text, 'html.parser')
-    links = [a['href'] if a['href'].startswith('http') else BASE_URL.rstrip('/') + '/' + a['href'].replace('miccai-2024/', '').lstrip('/') for a in soup.select("a[href*='-Paper']")]
 
+    # Build absolute URLs from hrefs. `urljoin` correctly handles relative
+    # paths and prevents duplicating path segments like 'miccai-2025/miccai-2025'.
+    links = []
+    for a in soup.select("a[href*='-Paper']"):
+        href = a.get('href', '').strip()
+        if not href:
+            continue
+        if href.startswith('http'):
+            full = href
+        else:
+            full = urljoin(BASE_URL, href)
+        links.append(full)
+
+    # Optionally save link list for debugging
     # with open("links.txt", "w") as f:
     #     for link in links:
     #         f.write(link + "\n")
@@ -171,6 +189,8 @@ def parse_html(html_content):
 
 def save_json(data, output_dir, filename):
     """Save data as JSON file"""
+    # Accept both `str` and `Path` for `output_dir` and ensure directory exists
+    output_dir = str(output_dir)
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, filename)
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -179,7 +199,7 @@ def save_json(data, output_dir, filename):
 
 def main():
     # Configuration
-    output_dir = "/home/joshua/Documents/GitHub/miccai_web_scraper/data/2024json"
+    output_dir = PROJECT_ROOT / 'data' / '2024json'
     
     # Read links
     links = extract_links()

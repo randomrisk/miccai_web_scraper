@@ -147,7 +147,7 @@ class ArXivSourceDownloader:
 
 async def main():
     # Configuration
-    json_dir = "/home/joshua/Documents/GitHub/miccai_web_scraper/data/2024json"
+    json_dir = "/home/joshua/Documents/GitHub/miccai_web_scraper/data/2025json"
     output_dir = "/home/joshua/Documents/GitHub/miccai_web_scraper/data/arxiv_sources"
     
     downloader = ArXivSourceDownloader(json_dir, output_dir)

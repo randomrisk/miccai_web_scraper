@@ -22,6 +22,7 @@ class PDFDownloader:
         self.max_concurrent = max_concurrent
         self.session = None
         self.progress_bar = None
+        self.skipped_count = 0
         
         # Create PDF directory if it doesn't exist
         os.makedirs(pdf_dir, exist_ok=True)
@@ -54,15 +55,30 @@ class PDFDownloader:
         
         return pdf_links
 
+    def is_pdf_already_downloaded(self, filename):
+        """Check if PDF file already exists"""
+        output_path = os.path.join(self.pdf_dir, filename)
+        exists = os.path.exists(output_path)
+        
+        # Also check if file size is reasonable (not empty or corrupted)
+        if exists:
+            file_size = os.path.getsize(output_path)
+            if file_size < 1024:  # Less than 1KB, likely corrupted
+                logging.warning(f"File {filename} exists but is too small ({file_size} bytes), will re-download")
+                return False
+        
+        return exists
+
     async def download_pdf(self, pdf_url, filename):
         """Download a single PDF file"""
         output_path = os.path.join(self.pdf_dir, filename)
         
-        # Skip if file already exists
-        if os.path.exists(output_path):
+        # Skip if file already exists and is valid
+        if self.is_pdf_already_downloaded(filename):
             logging.info(f"Skipping {filename} - already exists")
+            self.skipped_count += 1
             self.progress_bar.update(1)
-            return True
+            return "skipped"
 
         try:
             async with self.session.get(pdf_url) as response:
@@ -70,6 +86,7 @@ class PDFDownloader:
                     content = await response.read()
                     with open(output_path, 'wb') as f:
                         f.write(content)
+                    logging.info(f"Successfully downloaded {filename}")
                     self.progress_bar.update(1)
                     return True
                 else:
@@ -88,10 +105,15 @@ class PDFDownloader:
         try:
             # Get all PDF links
             pdf_links = self.get_pdf_links()
-            print(f"Found {len(pdf_links)} PDFs to download")
+            print(f"Found {len(pdf_links)} PDFs to process")
+            
+            # Check how many are already downloaded
+            already_downloaded = sum(1 for _, filename in pdf_links if self.is_pdf_already_downloaded(filename))
+            print(f"Already downloaded: {already_downloaded} PDFs")
+            print(f"Need to download: {len(pdf_links) - already_downloaded} PDFs")
             
             # Create progress bar
-            self.progress_bar = tqdm(total=len(pdf_links), desc="Downloading PDFs")
+            self.progress_bar = tqdm(total=len(pdf_links), desc="Processing PDFs")
             
             # Create download tasks
             tasks = []
@@ -104,9 +126,16 @@ class PDFDownloader:
             async with semaphore:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Count successful downloads
+            # Count results
             successful = sum(1 for r in results if r is True)
-            print(f"\nDownloaded {successful} out of {len(pdf_links)} PDFs")
+            skipped = sum(1 for r in results if r == "skipped")
+            failed = len(results) - successful - skipped
+            
+            print(f"\nResults:")
+            print(f"  Successfully downloaded: {successful} PDFs")
+            print(f"  Skipped (already exists): {skipped} PDFs") 
+            print(f"  Failed: {failed} PDFs")
+            print(f"  Total processed: {len(pdf_links)} PDFs")
             
         finally:
             await self.close_session()
@@ -115,8 +144,8 @@ class PDFDownloader:
 
 async def main():
     # Configuration
-    json_dir = "/home/joshua/Documents/GitHub/miccai_web_scraper/data/2024json"
-    pdf_dir = "/home/joshua/Documents/GitHub/miccai_web_scraper/data/2024pdf"
+    json_dir = "/Users/joshua_liu/Documents/github_repo/miccai_web_scraper/data/2025json"
+    pdf_dir = "/Users/joshua_liu/Documents/github_repo/miccai_web_scraper/data/2025pdf"
     max_concurrent = 10  # Maximum number of concurrent downloads
     
     downloader = PDFDownloader(json_dir, pdf_dir, max_concurrent)
